@@ -1,8 +1,13 @@
 module ActiveRecord
   module ConnectionAdapters
     class ConnectionPool
-      private
 
+      DATABASE_SECRET_CACHE_KEY = "DATABASE_SECRET_FOR_#{Rails.env.upcase}"
+      AWS_REGION = "<MY-REGION>"
+      AWS_PROFILE = "<MY-PROFILE>"
+      AWS_SECRET = "<MY-SECRET>"
+
+      private
       # Overrides default new_connection method from active record
       # to verify if database.yml has an aws_secret key
       # It uses the aws_secret from database.yml to get
@@ -11,32 +16,69 @@ module ActiveRecord
       # when this key is present.
       # Otherwise, just work as normal connection for activerecord default feature
       def new_connection
-        logger = ActiveSupport::TaggedLogging.new(Logger.new(STDOUT))
         config = spec.config
 
-        database_info = self.database_config_from_secret
-        logger.info "Getting new connection with: #{database_info.inspect}"
+        begin
+          # Loading with the current configuration from cache
+          self.pg_connect(config)
+        rescue
+          # Oops, wrong password
+          logger.info "Error connecting. Refreshing secrets"
+          # Just enough time for me to change the Secret in AWS
+          sleep 10
+          # Force the cache to be updated
+          self.clear_cache
+          # Loading with updated configuration
+          self.pg_connect(config)
+        end
+      end
 
-        config.merge!(
-          host: database_info["host"],
-          port: database_info["port"],
-          database: database_info["dbname"],
-          username: database_info["username"],
-          password: database_info["password"]
-        )
-
+      def pg_connect(config)
+        self.load_and_merge_config(config)
         Base.send(spec.adapter_method, config).tap do |conn|
           conn.check_version
         end
       end
 
-      def database_config_from_secret
-        client = Aws::SecretsManager::Client.new({
-          :region => "<MY-REGION>",
-          :profile => "<MY-PROFILE>"
-        })
+      def load_and_merge_config(config)
+        configuration = self.get_connection_info_from_cache
+        logger.info "New connection: host=#{configuration["host"]}, pass=#{configuration["password"]}"
 
-        JSON.parse(client.get_secret_value(secret_id: "<MY-SECRET-ID>").secret_string)
+        config.merge!(
+          host: configuration["host"],
+          port: configuration["port"],
+          database: configuration["dbname"],
+          username: configuration["username"],
+          password: configuration["password"]
+        )
+      end
+
+      # Read the secret values from AWS
+      def get_connection_info_from_aws
+        logger.info "Reading from AWS"
+        configuration = {
+          :region => AWS_REGION,
+          :profile => AWS_PROFILE
+        }
+        client = Aws::SecretsManager::Client.new(configuration)
+
+        JSON.parse(client.get_secret_value(secret_id: AWS_SECRET).secret_string)
+      end
+
+      # Caches the secret values for 60min
+      def get_connection_info_from_cache
+        logger.info "Reading from Rails cache"
+        Rails.cache.fetch(DATABASE_SECRET_CACHE_KEY, expire_in: (60).minutes) do
+          get_connection_info_from_aws
+        end
+      end
+
+      def clear_cache
+        Rails.cache.delete(DATABASE_SECRET_CACHE_KEY)
+      end
+
+      def logger
+        @logger ||= ActiveSupport::TaggedLogging.new(Logger.new(STDOUT))
       end
     end
   end
