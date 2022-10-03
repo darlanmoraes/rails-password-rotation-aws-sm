@@ -29,7 +29,8 @@ module ActiveRecord
       def pg_connect
         config = spec.config
 
-        if spec.config.key? :aws_secret
+        has_aws_secret = (spec.config.key? :aws_secret) && spec.config[:aws_secret] != nil
+        if has_aws_secret
           self.load_and_merge_config(config)
         end
 

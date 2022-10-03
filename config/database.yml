@@ -20,16 +20,16 @@ default: &default
   # For details on connection pooling, see Rails configuration guide
   # https://guides.rubyonrails.org/configuring.html#database-pooling
   pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 1 } %>
-  host: wrong
-  database: wrong
-  username: wrong
+  host: 127.0.0.1
+  database: postgres
+  username: postgres
   password: <%= ENV['DATABASE_PASSWORD'] %>
   reconnect: false
 
 development:
   <<: *default
   database: rotation_development
-  aws_secret: <%= ENV['AWS_SECRET'] %>
+  aws_secret: <%= ENV.fetch("AWS_SECRET") { nil } %>
 
   # The specified database role being used to connect to postgres.
   # To create additional roles in postgres see `$ createuser --help`.
@@ -64,7 +64,7 @@ development:
 test:
   <<: *default
   database: rotation_test
-  aws_secret: <%= ENV['AWS_SECRET'] %>
+  aws_secret: <%= ENV.fetch("AWS_SECRET") { nil } %>
 
 # As with config/credentials.yml, you never want to store sensitive information,
 # like your database password, in your source code. If your source code is
