@@ -3,9 +3,6 @@ module ActiveRecord
     class ConnectionPool
 
       DATABASE_SECRET_CACHE_KEY = "DATABASE_SECRET_FOR_#{Rails.env.upcase}"
-      AWS_REGION = "<MY-REGION>"
-      AWS_PROFILE = "<MY-PROFILE>"
-      AWS_SECRET = "<MY-SECRET>"
 
       private
       # Overrides default new_connection method from active record
@@ -16,25 +13,26 @@ module ActiveRecord
       # when this key is present.
       # Otherwise, just work as normal connection for activerecord default feature
       def new_connection
-        config = spec.config
-
         begin
           # Loading with the current configuration from cache
-          self.pg_connect(config)
+          self.pg_connect
         rescue
           # Oops, wrong password
           logger.info "Error connecting. Refreshing secrets"
-          # Just enough time for me to change the Secret in AWS
-          sleep 10
           # Force the cache to be updated
           self.clear_cache
           # Loading with updated configuration
-          self.pg_connect(config)
+          self.pg_connect
         end
       end
 
-      def pg_connect(config)
-        self.load_and_merge_config(config)
+      def pg_connect
+        config = spec.config
+
+        if spec.config.key? :aws_secret
+          self.load_and_merge_config(config)
+        end
+
         Base.send(spec.adapter_method, config).tap do |conn|
           conn.check_version
         end
@@ -55,20 +53,17 @@ module ActiveRecord
 
       # Read the secret values from AWS
       def get_connection_info_from_aws
-        logger.info "Reading from AWS"
-        configuration = {
-          :region => AWS_REGION,
-          :profile => AWS_PROFILE
-        }
-        client = Aws::SecretsManager::Client.new(configuration)
+        logger.info "Reading from AWS secret"
+        client = Aws::SecretsManager::Client.new
 
-        JSON.parse(client.get_secret_value(secret_id: AWS_SECRET).secret_string)
+        aws_secret = spec.config[:aws_secret]
+        JSON.parse(client.get_secret_value(secret_id: aws_secret).secret_string)
       end
 
       # Caches the secret values for 60min
       def get_connection_info_from_cache
         logger.info "Reading from Rails cache"
-        Rails.cache.fetch(DATABASE_SECRET_CACHE_KEY, expire_in: (60).minutes) do
+        Rails.cache.fetch(DATABASE_SECRET_CACHE_KEY, expires_in: nil) do
           get_connection_info_from_aws
         end
       end

@@ -23,12 +23,13 @@ default: &default
   host: wrong
   database: wrong
   username: wrong
-  password: <%= ENV['APPNAME_DATABASE_PASSWORD'] %>
+  password: <%= ENV['DATABASE_PASSWORD'] %>
   reconnect: false
 
 development:
   <<: *default
   database: rotation_development
+  aws_secret: <%= ENV['AWS_SECRET'] %>
 
   # The specified database role being used to connect to postgres.
   # To create additional roles in postgres see `$ createuser --help`.
@@ -63,6 +64,7 @@ development:
 test:
   <<: *default
   database: rotation_test
+  aws_secret: <%= ENV['AWS_SECRET'] %>
 
 # As with config/credentials.yml, you never want to store sensitive information,
 # like your database password, in your source code. If your source code is
